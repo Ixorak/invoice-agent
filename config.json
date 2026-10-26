@@ -1,0 +1,19 @@
+{
+  "backend": "claude-code",
+  "claude_path": "",
+  "model": "sonnet",
+  "effort": null,
+  "timeout_seconds": 240,
+  "folders": {
+    "inbox": "inbox",
+    "processed": "processed",
+    "review": "review",
+    "output": "output"
+  },
+  "demo_folder": "demo",
+  "swiss_vat_rates": [8.1, 2.6, 3.8, 0],
+  "tolerance": 0.05,
+  "watch_interval_seconds": 10,
+  "min_text_chars": 25,
+  "max_text_chars": 60000
+}

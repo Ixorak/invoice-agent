@@ -1,0 +1,12 @@
+# Working folders of the agent (invoices and results never go to git)
+output/
+inbox/
+processed/
+review/
+demo/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/

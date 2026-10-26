@@ -1,0 +1,5 @@
+# Runtime dependencies (tested with the versions in brackets, Python 3.13).
+pdfplumber>=0.11,<0.12   # [0.11.10] local text extraction
+pydantic>=2.7,<3         # [2.14.1] JSON schema and validation
+openpyxl>=3.1,<4         # [3.1.5] Excel output
+rich>=13,<16             # [15.0.0] console tables

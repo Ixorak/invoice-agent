@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Iterable, Sequence
 
 from .iban import format_iban, iban_problem
 from .injection import KeywordHit
 from .models import InvoiceExtraction
 from .parsing import normalize_iban
-from .textutil import is_swiss_uid, normalize_vat_id
+from .textutil import normalize_vat_id
 
 OK = "OK"
 NEEDS_REVIEW = "NEEDS_REVIEW"
@@ -88,7 +88,10 @@ class CheckResult:
 def money(value: Decimal | None) -> str:
     if value is None:
         return "n/a"
-    return f"{value.quantize(_CENT, rounding=ROUND_HALF_UP):,.2f}"
+    try:
+        return f"{value.quantize(_CENT, rounding=ROUND_HALF_UP):,.2f}"
+    except InvalidOperation:  # absurdly large number
+        return str(value)
 
 
 def rate_text(rate: Decimal | None) -> str:
@@ -113,12 +116,17 @@ def is_swiss_invoice(ex: InvoiceExtraction) -> bool:
     """
     vat_key = normalize_vat_id(ex.supplier.vat_id)
     if vat_key:
-        if is_swiss_uid(ex.supplier.vat_id):
+        if vat_key.startswith("CHE"):  # a Swiss UID, even a slightly damaged one
             return True
         if re.match(r"[A-Z]{2}", vat_key):
             return False
     iban = normalize_iban(ex.payment.iban) or ""
     return iban[:2] in ("CH", "LI") or ex.invoice.currency == "CHF"
+
+
+def is_text_only(line) -> bool:
+    """An information line ("Delivery note 4711 of 01.03.") with no quantity, price or amount."""
+    return line.quantity is None and line.unit_price is None and line.amount is None
 
 
 def _vat_table(ex: InvoiceExtraction) -> list[dict]:
@@ -128,7 +136,7 @@ def _vat_table(ex: InvoiceExtraction) -> list[dict]:
     lines with that rate, or from the subtotal when there is a single rate.
     Without a VAT summary, the lines are grouped by rate.
     """
-    lines = ex.line_items
+    lines = [ln for ln in ex.line_items if not is_text_only(ln)]
     totals = ex.totals
     rows: list[dict] = []
 
@@ -180,19 +188,21 @@ def run_checks(
     tol = tolerance
 
     # LINES_MISMATCH: the line amounts must add up to the subtotal.
+    # Information lines (no quantity, price or amount) are ignored. No priced line at all, or a
+    # priced line without amount, is flagged even without a printed subtotal: otherwise nothing
+    # would verify the total.
+    priced = [(i, ln) for i, ln in enumerate(ex.line_items, 1) if not is_text_only(ln)]
+    missing_amounts = [i for i, ln in priced if ln.amount is None]
     lines_sum: Decimal | None = None
-    missing_amounts = [i for i, ln in enumerate(ex.line_items, 1) if ln.amount is None]
-    if ex.line_items and not missing_amounts:
-        lines_sum = sum((ln.amount for ln in ex.line_items), Decimal(0))
-    # (No lines, or a line without amount, is flagged even without a printed subtotal:
-    # otherwise nothing would verify the total.)
-    if not ex.line_items:
-        add("LINES_MISMATCH", "No line items were found, so the amounts cannot be checked against them.")
+    if priced and not missing_amounts:
+        lines_sum = sum((ln.amount for _, ln in priced), Decimal(0))
+    if not priced:
+        add("LINES_MISMATCH", "No line item with an amount was found, so the amounts cannot be checked against them.")
     elif missing_amounts:
         add("LINES_MISMATCH", f"Line(s) {', '.join(map(str, missing_amounts))} have no amount, so the lines cannot be added up.")
     elif totals.subtotal is not None and not _close(lines_sum, totals.subtotal, tol):
         add("LINES_MISMATCH",
-            f"The {len(ex.line_items)} line items add up to {money(lines_sum)}, but the printed subtotal is "
+            f"The {len(priced)} line items add up to {money(lines_sum)}, but the printed subtotal is "
             f"{money(totals.subtotal)} (difference {money(lines_sum - totals.subtotal)}).")
 
     # VAT_MISMATCH: VAT of each rate = base x rate; the parts must add up to the VAT total.
@@ -207,6 +217,15 @@ def run_checks(
             add("VAT_MISMATCH",
                 f"VAT at {rate_text(rate)} on {money(base)} should be {money(expected)}, but the invoice shows "
                 f"{money(vat)} (difference {money(vat - expected)}).")
+    # VAT that is charged but cannot be checked (rate or base unknown) is flagged too.
+    for row in table:
+        if row["vat"] is not None and abs(row["vat"]) > tol and (row["rate"] is None or row["base"] is None):
+            missing_part = "rate" if row["rate"] is None else "taxable amount"
+            add("VAT_MISMATCH", f"VAT of {money(row['vat'])} is charged but its {missing_part} is not known, "
+                                "so it cannot be checked.")
+    if not table and totals.vat_total is not None and abs(totals.vat_total) > tol:
+        add("VAT_MISMATCH", f"A VAT total of {money(totals.vat_total)} is charged but no VAT rate was found, "
+                            "so it cannot be checked.")
     printed_parts = [row["vat"] for row in table if row["vat"] is not None]
     if totals.vat_breakdown and totals.vat_total is not None and printed_parts and len(printed_parts) == len(table):
         parts_sum = sum(printed_parts, Decimal(0))

@@ -15,9 +15,9 @@ class PdfReadError(Exception):
 
 @dataclass(frozen=True)
 class PdfContent:
-    text: str          # text layer ("" for a scanned invoice)
+    text: str          # text layer; for a scanned invoice it is empty or very short
     pages: int
-    scanned: bool      # True when there is (almost) no text layer
+    scanned: bool      # True when there is (almost) no text layer: the AI reads the file instead
     truncated: bool = False
 
 
@@ -33,7 +33,8 @@ def read_pdf(path: Path, min_text_chars: int = 25, max_text_chars: int = 60000) 
     """Extract the text layer with pdfplumber.
 
     A PDF with fewer than ``min_text_chars`` letters or digits is treated as scanned:
-    the AI will then read the file itself.
+    the AI will then read the file itself. Its short text layer is kept anyway, so the
+    keyword scan still sees it.
     """
     try:
         with pdfplumber.open(path) as pdf:
@@ -50,4 +51,4 @@ def read_pdf(path: Path, min_text_chars: int = 25, max_text_chars: int = 60000) 
     truncated = len(text) > max_text_chars
     if truncated:
         text = text[:max_text_chars] + "\n[... text truncated ...]"
-    return PdfContent(text="" if scanned else text, pages=len(pages), scanned=scanned, truncated=truncated)
+    return PdfContent(text=text, pages=len(pages), scanned=scanned, truncated=truncated)

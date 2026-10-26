@@ -10,7 +10,11 @@ class BackendUnavailable(Exception):
 
 
 class BackendError(Exception):
-    """A call failed (crash, timeout, not logged in...). The invoice is left in the inbox."""
+    """A call failed (crash, not logged in...). The run stops and the invoice is left in the inbox."""
+
+
+class BackendTimeout(BackendError):
+    """One call took too long. Only this invoice is left in the inbox; the others go on."""
 
 
 class InvalidAnswer(Exception):

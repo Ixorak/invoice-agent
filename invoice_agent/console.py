@@ -12,7 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .checks import EXTRACTION_FAILED, NEEDS_REVIEW, OK, money
-from .pipeline import SKIPPED, InvoiceResult
+from .pipeline import SKIPPED, FileFailure, InvoiceResult
 
 STATUS_STYLE = {OK: "bold green", NEEDS_REVIEW: "bold dark_orange", EXTRACTION_FAILED: "bold red", SKIPPED: "dim"}
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
@@ -60,6 +60,9 @@ class ConsoleReporter:
         ))
         if result.note and result.status != SKIPPED:
             self.console.print(Text.assemble(("      note: ", "yellow"), plain(result.note)))
+
+    def failed(self, failure: FileFailure) -> None:
+        self.console.print(Text.assemble(("      error: ", "bold red"), plain(failure.file), ": ", plain(failure.message)))
 
 
 def summary_table(results: list[InvoiceResult], title: str = "invoice-agent: summary", width: int = 160) -> Table:

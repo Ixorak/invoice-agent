@@ -34,3 +34,23 @@ def test_text_from_an_invoice_never_becomes_a_formula(config, workspace):
     cell = load_workbook(workspace.excel_path)["Invoices"]["D2"]
     assert cell.data_type == "s"
     assert cell.value.startswith("=HYPERLINK")
+
+
+def test_control_characters_are_removed_before_writing():
+    from openpyxl import Workbook
+
+    from invoice_agent.excel import _set
+
+    cell = Workbook().active["A1"]
+    _set(cell, "excerpt\x01 with\x02 control characters")
+    assert cell.value == "excerpt with control characters"
+
+
+def test_the_same_file_is_never_added_twice(config, workspace):
+    from invoice_agent.excel import append_results
+
+    copy_sample("03-nordwerk-demo.pdf", workspace.inbox, "a.pdf")
+    [result] = Agent(config, workspace, FakeBackend(payload())).process_inbox().results
+    append_results(workspace.excel_path, [result])  # e.g. a run interrupted before the registry was saved
+    wb = load_workbook(workspace.excel_path)
+    assert wb["Invoices"].max_row == 2 and wb["Line items"].max_row == 3

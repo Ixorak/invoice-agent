@@ -70,6 +70,19 @@ def test_normalization_helpers():
     assert normalize_supplier_name("Nordwerk GmbH") == "nordwerk"
     assert normalize_supplier_name("S.A.R.L.") == "sarl"  # a name is never emptied
     assert normalize_invoice_number("F-2026-0418") == "F20260418"
-    assert same_supplier("CHE1", "a", "CHE1", "b")
-    assert not same_supplier("CHE1", "a", "CHE2", "a")
-    assert same_supplier(None, "a", "CHE2", "a")
+    assert same_supplier("CHE111111111", "a", "CHE111111111", "b")
+    assert not same_supplier("CHE111111111", "a", "CHE222222222", "a")
+    assert same_supplier(None, "a", "CHE222222222", "a")
+
+
+def test_swiss_vat_number_with_any_kind_of_dash():
+    for written in ("CHE‑128.946.530 TVA", "CHE–128–946–530", "CHE 128 946 530 MWST",
+                    "che-128.946.530"):
+        assert normalize_vat_id(written) == "CHE128946530", written
+
+
+def test_damaged_vat_number_falls_back_to_the_name(tmp_path):
+    # A scan turned the last 0 into the letter O: the VAT numbers differ, the names are the same.
+    reg = _registry(tmp_path, vat_id="CHE-123.456.789 MWST")
+    assert reg.find_duplicate("Muster Handel AG", "CHE-123.456.78O MWST", "R-1001") is not None
+    assert reg.find_duplicate("Other Company AG", "CHE-123.456.78O MWST", "R-1001") is None

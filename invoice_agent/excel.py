@@ -16,10 +16,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from .checks import CODE_TITLES, OK
+from .checks import CODE_TITLES, EXTRACTION_FAILED, OK
 from .iban import format_iban
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -105,6 +106,8 @@ def _excel_value(value):
 
 def _set(cell, value, number_format: str | None = None) -> None:
     value = _excel_value(value)
+    if isinstance(value, str):
+        value = ILLEGAL_CHARACTERS_RE.sub("", value)  # control characters are not allowed in xlsx
     cell.value = value
     if isinstance(value, str) and cell.data_type == "f":
         # Text from an invoice must never become a formula (e.g. "=HYPERLINK(...)").
@@ -213,10 +216,21 @@ def invoice_row(r: "InvoiceResult") -> list:
         len(ex.line_items) if ex else None,
         round(r.duration_seconds, 1),
         _naive(r.processed_at),
-        r.moved_to_display,
+        r.moved_to_display or "not moved (still in the inbox)",
         r.json_display,
         r.sha256,
     ]
+
+
+def _recorded_shas(ws) -> set[str]:
+    """SHA-256 of the files that already have a final row (anything but EXTRACTION_FAILED)."""
+    headers = [h for h, _, _ in INVOICE_COLUMNS]
+    sha_index, status_index = headers.index("SHA-256"), headers.index("Status")
+    found = set()
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if len(row) > sha_index and row[sha_index] and row[status_index] != EXTRACTION_FAILED:
+            found.add(row[sha_index])
+    return found
 
 
 def append_results(path: Path, results: list["InvoiceResult"]) -> None:
@@ -226,8 +240,11 @@ def append_results(path: Path, results: list["InvoiceResult"]) -> None:
     ensure_writable(path)
     wb = load_workbook(path) if path.exists() else _new_workbook()
     invoices, lines, review = _sheet(wb, "Invoices"), _sheet(wb, "Line items"), _sheet(wb, "Review")
+    already = _recorded_shas(invoices)
 
     for r in results:
+        if r.sha256 in already:
+            continue  # e.g. a run interrupted right after this step: a file is never added twice
         row = _append(invoices, INVOICE_COLUMNS, invoice_row(r))
         _style_status(invoices.cell(row=row, column=2))
 

@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .checks import PreviousInvoice
-from .textutil import normalize_invoice_number, normalize_supplier_name, normalize_vat_id
+from .textutil import is_reliable_vat_key, normalize_invoice_number, normalize_supplier_name, normalize_vat_id
 
 
 class RegistryError(Exception):
@@ -45,9 +45,11 @@ def supplier_keys(supplier_name: str | None, vat_id: str | None) -> tuple[str | 
 
 
 def same_supplier(vat_a: str | None, name_a: str | None, vat_b: str | None, name_b: str | None) -> bool:
-    """Compare VAT numbers when both are known; otherwise compare normalized names."""
-    if vat_a and vat_b:
-        return vat_a == vat_b
+    """Compare VAT numbers when both are known and well formed; otherwise compare normalized names."""
+    if vat_a and vat_b and vat_a == vat_b:
+        return True
+    if is_reliable_vat_key(vat_a) and is_reliable_vat_key(vat_b):
+        return False
     return bool(name_a and name_b and name_a == name_b)
 
 
@@ -94,6 +96,8 @@ class Registry:
             vat_key=vat_key, name_key=name_key, number_key=normalize_invoice_number(invoice_number),
             json_report=json_report,
         )
+        # A file processed again (after an EXTRACTION_FAILED) replaces its earlier record.
+        self.records = [r for r in self.records if r.sha256 != sha256]
         self.records.append(record)
         return record
 

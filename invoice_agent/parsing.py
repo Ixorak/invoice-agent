@@ -106,13 +106,13 @@ def parse_amount(value: object, decimal_separator: str | None = None) -> Decimal
     if isinstance(value, Decimal):
         if not value.is_finite():
             raise AmountError(f"not an amount: {value!r}")
-        return value
+        return _plausible(value, value)
     if isinstance(value, int):
-        return Decimal(value)
+        return _plausible(Decimal(value), value)
     if isinstance(value, float):
         if not math.isfinite(value):
             raise AmountError(f"not an amount: {value!r}")
-        return Decimal(repr(value))
+        return _plausible(Decimal(repr(value)), value)
     if not isinstance(value, str):
         raise AmountError(f"not an amount: {value!r}")
 
@@ -144,7 +144,16 @@ def parse_amount(value: object, decimal_separator: str | None = None) -> Decimal
         result = Decimal(normalized)
     except InvalidOperation as exc:  # pragma: no cover - guarded by the regex above
         raise AmountError(f"not an amount: {value!r}") from exc
-    return -result if negative else result
+    return _plausible(-result if negative else result, value)
+
+
+MAX_AMOUNT = Decimal(10) ** 15  # no invoice amount has more than 15 digits before the decimal mark
+
+
+def _plausible(amount: Decimal, original: object) -> Decimal:
+    if abs(amount) >= MAX_AMOUNT:
+        raise AmountError(f"not a plausible amount (more than 15 digits): {original!r}")
+    return amount
 
 
 def parse_rate(value: object, decimal_separator: str | None = None) -> Decimal | None:

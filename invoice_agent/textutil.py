@@ -21,8 +21,10 @@ def clean_text(value: object) -> str | None:
     return text or None
 
 
-# A Swiss UID: CHE-123.456.789 (often followed by MWST / TVA / IVA).
-_SWISS_UID = re.compile(r"CHE[\s.\-]*(\d{3})[\s.\-]*(\d{3})[\s.\-]*(\d{3})")
+# A Swiss UID: CHE-123.456.789 (often followed by MWST / TVA / IVA). Any separator is
+# accepted between the groups: spaces, dots, and every kind of dash (Word often writes
+# a non-breaking hyphen or an en dash instead of "-").
+_SWISS_UID = re.compile(r"CHE[^A-Z0-9]*(\d{3})[^A-Z0-9]*(\d{3})[^A-Z0-9]*(\d{3})(?!\d)")
 _VAT_LABEL = re.compile(
     r"^\s*(?:VAT|UST|MWST|TVA|IVA|UID|IDE|IDI)\b[^A-Z0-9]*"
     r"(?:(?:REG(?:ISTRATION)?|NO|NR|NUMBER|ID|IDNR)\b[^A-Z0-9]*)?"
@@ -49,6 +51,13 @@ def normalize_vat_id(value: str | None) -> str | None:
 def is_swiss_uid(value: str | None) -> bool:
     key = normalize_vat_id(value)
     return bool(key and re.fullmatch(r"CHE\d{9}", key))
+
+
+def is_reliable_vat_key(key: str | None) -> bool:
+    """False for a Swiss number that is visibly damaged (e.g. "CHE12894653O" from a bad scan)."""
+    if not key:
+        return False
+    return not key.startswith("CHE") or bool(re.fullmatch(r"CHE\d{9}", key))
 
 
 _LEGAL_FORMS = {

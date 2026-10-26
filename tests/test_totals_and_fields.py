@@ -2,7 +2,9 @@ from decimal import Decimal
 
 from invoice_agent.checks import CODES, NEEDS_REVIEW, OK, run_checks
 
-from .conftest import SWISS, codes, extraction
+from invoice_agent.models import InvoiceExtraction
+
+from .conftest import SWISS, codes, extraction, payload
 
 
 def test_status_is_ok_only_without_codes():
@@ -70,3 +72,23 @@ def test_line_without_amount_is_flagged_even_without_subtotal():
 def test_without_printed_subtotal_the_lines_are_used_for_the_total():
     assert codes(extraction({"totals.subtotal": None})) == []
     assert codes(extraction({"totals.subtotal": None, "totals.total_printed": "300.00"})) == ["TOTAL_MISMATCH"]
+
+
+def test_information_lines_without_amounts_are_ignored():
+    data = payload()
+    data["line_items"].append({"description": "Lieferschein 4711 vom 01.03.", "quantity": None,
+                               "unit_price": None, "vat_rate": None, "amount": None})
+    assert codes(InvoiceExtraction.from_ai(data)) == []
+
+
+def test_only_information_lines_is_flagged():
+    data = payload()
+    data["line_items"] = [{"description": "Siehe Beilage", "quantity": None, "unit_price": None,
+                           "vat_rate": None, "amount": None}]
+    assert codes(InvoiceExtraction.from_ai(data)) == ["LINES_MISMATCH"]
+
+
+def test_absurd_amounts_never_crash_the_report():
+    from invoice_agent.checks import money
+
+    assert money(Decimal("1E+40")) == "1E+40"

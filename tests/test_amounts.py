@@ -90,3 +90,10 @@ def test_rates_and_quantities():
     assert parse_quantity("40 kg") == D("40")
     assert parse_quantity("3x") == D("3")
     assert parse_quantity("1,5 Std.") == D("1.5")
+
+
+def test_implausibly_large_amounts_are_rejected():
+    assert parse_amount("999'999'999'999.99") == D("999999999999.99")
+    for huge in ("1234567890123456.00", "1" + "0" * 27, 10 ** 20, 1e20):
+        with pytest.raises(AmountError):
+            parse_amount(huge)

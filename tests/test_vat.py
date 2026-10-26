@@ -152,3 +152,38 @@ def test_vat_total_is_the_sum_of_parts_when_not_printed():
     result = run_checks(ex, tolerance=Decimal("0.05"), swiss_rates=SWISS)
     assert result.codes == []
     assert result.vat_used == Decimal("17.50")
+
+
+OLD_RATE = {
+    "line_items.0.vat_rate": "7.7", "line_items.1.vat_rate": "7.7",
+    "totals.vat_breakdown": [{"rate": "7.7", "base": "250.00", "vat": "19.25"}],
+    "totals.vat_total": "19.25", "totals.total_printed": "269.25",
+}
+
+
+def test_swiss_vat_number_written_with_a_non_breaking_hyphen():
+    ex = extraction({**OLD_RATE, "supplier.vat_id": "CHE‑123.456.789 TVA"})
+    assert is_swiss_invoice(ex)
+    assert codes(ex) == ["VAT_RATE_INVALID"]
+
+
+def test_slightly_damaged_swiss_vat_number_is_still_swiss():
+    ex = extraction({**OLD_RATE, "supplier.vat_id": "CHE-123.456.78O MWST"})
+    assert is_swiss_invoice(ex)
+    assert codes(ex) == ["VAT_RATE_INVALID"]
+
+
+def test_vat_without_any_rate_cannot_be_checked_and_is_flagged():
+    no_rates = {"line_items.0.vat_rate": None, "line_items.1.vat_rate": None}
+    in_summary = extraction({**no_rates, "totals.vat_breakdown": [{"rate": None, "base": None, "vat": "20.25"}]})
+    assert codes(in_summary) == ["VAT_MISMATCH"]
+    total_only = extraction({**no_rates, "totals.vat_breakdown": []})
+    assert codes(total_only) == ["VAT_MISMATCH"]
+
+
+def test_invoice_without_vat_at_all_is_fine():
+    ex = extraction({
+        "line_items.0.vat_rate": None, "line_items.1.vat_rate": None,
+        "totals.vat_breakdown": [], "totals.vat_total": None, "totals.total_printed": "250.00",
+    })
+    assert codes(ex) == []

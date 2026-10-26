@@ -4,6 +4,7 @@ inbox/
 processed/
 review/
 demo/
+*.lock
 
 # Python
 .venv/

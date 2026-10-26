@@ -1,7 +1,7 @@
 """Processing of one invoice and of the whole inbox.
 
 For each PDF: fingerprint -> read -> AI extraction -> Python checks ->
-JSON report -> Excel -> registry -> move to processed/ (OK) or review/.
+move to processed/ (OK) or review/ -> JSON report -> Excel -> registry.
 
 The agent only reads PDFs and writes inside its own folders. It never pays,
 sends, contacts anyone or modifies a PDF.
@@ -9,6 +9,7 @@ sends, contacts anyone or modifies a PDF.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import shutil
@@ -19,7 +20,7 @@ from pathlib import Path
 from typing import Protocol
 
 from . import __version__
-from .backends import Backend, BackendError
+from .backends import Backend, BackendError, BackendTimeout
 from .checks import CODE_TITLES, EXTRACTION_FAILED, OK, CheckResult, Issue, run_checks
 from .config import Config, Workspace
 from .excel import ExcelLockedError, append_results, ensure_writable
@@ -47,7 +48,7 @@ class InvoiceResult:
     attempts: list[Attempt] = field(default_factory=list)
     duration_seconds: float = 0.0
     error: str | None = None
-    note: str | None = None               # e.g. why a file was skipped
+    note: str | None = None               # e.g. why a file was skipped or not moved
     moved_to: Path | None = None
     json_path: Path | None = None
     base_dir: Path | None = None
@@ -80,9 +81,18 @@ class InvoiceResult:
 
 
 @dataclass
+class FileFailure:
+    """A file that could not be processed this time. It stays in the inbox."""
+
+    file: str
+    message: str
+
+
+@dataclass
 class BatchResult:
     results: list[InvoiceResult]
-    error: str | None = None  # set when the run stopped early (e.g. Claude Code failed)
+    error: str | None = None  # the run stopped early (e.g. Claude Code is not logged in)
+    failures: list[FileFailure] = field(default_factory=list)
 
     @property
     def processed(self) -> list[InvoiceResult]:
@@ -92,6 +102,7 @@ class BatchResult:
 class Reporter(Protocol):
     def started(self, path: Path, index: int, total: int, scanned: bool | None) -> None: ...
     def finished(self, result: InvoiceResult) -> None: ...
+    def failed(self, failure: FileFailure) -> None: ...
 
 
 class _SilentReporter:
@@ -99,6 +110,9 @@ class _SilentReporter:
         pass
 
     def finished(self, result):
+        pass
+
+    def failed(self, failure):
         pass
 
 
@@ -114,6 +128,39 @@ def unique_path(folder: Path, name: str, sha256: str) -> Path:
         candidate = folder / f"{stem}-{sha256[:8]}-{counter}{suffix}"
         counter += 1
     return candidate
+
+
+def json_report_path(folder: Path, stem: str, sha256: str) -> Path:
+    """output/json/<stem>.json, reused when it already describes the same file (same SHA-256)."""
+    for candidate in (folder / f"{stem}.json", folder / f"{stem}-{sha256[:8]}.json"):
+        if not candidate.exists():
+            return candidate
+        try:
+            if json.loads(candidate.read_text(encoding="utf-8")).get("sha256") == sha256:
+                return candidate
+        except (OSError, ValueError):
+            pass
+    return unique_path(folder, f"{stem}.json", sha256)
+
+
+def move_file(source: Path, destination: Path) -> None:
+    """Move without ever leaving the PDF in two places.
+
+    A rename is used (same drive). Between drives the file is copied and the original deleted;
+    if the original cannot be deleted (open in another program), the copy is removed again.
+    """
+    try:
+        os.replace(source, destination)
+        return
+    except OSError as exc:
+        if exc.errno != errno.EXDEV and getattr(exc, "winerror", None) != 17:  # 17: not the same drive
+            raise
+    shutil.copy2(source, destination)
+    try:
+        os.remove(source)
+    except OSError:
+        os.remove(destination)
+        raise
 
 
 def list_pdfs(folder: Path) -> list[Path]:
@@ -142,14 +189,25 @@ class Agent:
     # ------------------------------------------------------------------ run
     def process_inbox(self, files: list[Path] | None = None) -> BatchResult:
         files = list_pdfs(self.workspace.inbox) if files is None else files
-        results: list[InvoiceResult] = []
+        batch = BatchResult([])
         for index, path in enumerate(files, start=1):
             try:
-                result = self.process_file(path, index, len(files))
+                batch.results.append(self.process_file(path, index, len(files)))
+            except BackendTimeout as exc:
+                # Only this file is concerned (e.g. a very large scan): go on with the others.
+                self._fail(batch, path, f"{exc} The file was left in the inbox.")
             except (BackendError, ExcelLockedError) as exc:
-                return BatchResult(results, f"{path.name}: {exc} The file was left in the inbox.")
-            results.append(result)
-        return BatchResult(results)
+                # Affects every file (Claude Code not logged in, workbook open in Excel): stop here.
+                batch.error = f"{path.name}: {exc} The file was left in the inbox."
+                return batch
+            except Exception as exc:  # anything unexpected with one file must not stop the others
+                self._fail(batch, path, f"{type(exc).__name__}: {exc}. The file was left in the inbox.")
+        return batch
+
+    def _fail(self, batch: BatchResult, path: Path, message: str) -> None:
+        failure = FileFailure(path.name, message)
+        batch.failures.append(failure)
+        self.reporter.failed(failure)
 
     def process_file(self, path: Path, index: int = 1, total: int = 1) -> InvoiceResult:
         started = time.perf_counter()
@@ -157,7 +215,7 @@ class Agent:
         sha = sha256_file(path)
 
         known = self.registry.find_by_hash(sha)
-        if known is not None:
+        if known is not None and known.status != EXTRACTION_FAILED:
             result = InvoiceResult(
                 file=path.name, sha256=sha, status=SKIPPED, processed_at=processed_at,
                 note=(f"same file already processed on {known.processed_at.replace('T', ' ')[:16]} "
@@ -170,6 +228,8 @@ class Agent:
         ensure_writable(self.workspace.excel_path)  # before spending an AI call
         result = InvoiceResult(file=path.name, sha256=sha, status=EXTRACTION_FAILED, processed_at=processed_at,
                                base_dir=self.base_dir)
+        if known is not None:
+            result.note = f"processed again: the extraction failed on {known.processed_at.replace('T', ' ')[:16]}"
         try:
             content = read_pdf(path, self.config.min_text_chars, self.config.max_text_chars)
         except PdfReadError as exc:
@@ -179,7 +239,7 @@ class Agent:
         else:
             result.read_mode, result.pages = ("scan" if content.scanned else "text"), content.pages
             self.reporter.started(path, index, total, content.scanned)
-            outcome = self.extractor.extract(content, path)  # BackendError -> caller stops the run
+            outcome = self.extractor.extract(content, path)  # BackendError -> handled by process_inbox
             result.attempts = outcome.attempts
             if outcome.extraction is None:
                 result.error = outcome.error
@@ -187,8 +247,8 @@ class Agent:
             else:
                 ex = outcome.extraction
                 result.extraction = ex
-                scan_source = content.text if not content.scanned else "\n".join(ex.text_fields())
-                result.keyword_hits = scan_text(scan_source)
+                # The PDF text layer (even the short one of a scan) and what the AI transcribed.
+                result.keyword_hits = scan_text("\n".join([content.text, *ex.text_fields()]))
                 previous = self.registry.find_duplicate(ex.supplier.name, ex.supplier.vat_id, ex.invoice.number)
                 result.checks = run_checks(
                     ex,
@@ -200,17 +260,33 @@ class Agent:
                 result.issues = result.checks.issues
                 result.status = result.checks.status
         result.duration_seconds = time.perf_counter() - started
+        self._record(path, result)
+        self.reporter.finished(result)
+        return result
 
-        destination_folder = self.workspace.processed if result.status == OK else self.workspace.review
-        destination = unique_path(destination_folder, path.name, sha)
-        result.moved_to = destination
-        result.json_path = unique_path(self.workspace.json_dir, path.stem + ".json", sha)
-
+    def _record(self, path: Path, result: InvoiceResult) -> None:
+        """Move the PDF, then write the JSON report, the Excel rows and the registry entry."""
+        folder = self.workspace.processed if result.status == OK else self.workspace.review
+        destination = unique_path(folder, path.name, result.sha256)
+        try:
+            move_file(path, destination)
+            result.moved_to = destination
+        except OSError as exc:
+            result.note = f"could not be moved out of the inbox ({exc}); is it open in another program?"
+        result.json_path = json_report_path(self.workspace.json_dir, path.stem, result.sha256)
         self._write_json(result)
-        append_results(self.workspace.excel_path, [result])
+        try:
+            append_results(self.workspace.excel_path, [result])
+        except ExcelLockedError:
+            if result.moved_to is not None:  # put the PDF back: it will be processed on the next run
+                try:
+                    os.replace(result.moved_to, path)
+                except OSError:
+                    pass
+            raise
         ex = result.extraction
         self.registry.add(
-            sha256=sha, file=path.name, processed_at=processed_at.isoformat(timespec="seconds"),
+            sha256=result.sha256, file=path.name, processed_at=result.processed_at.isoformat(timespec="seconds"),
             status=result.status,
             supplier_name=ex.supplier.name if ex else None,
             vat_id=ex.supplier.vat_id if ex else None,
@@ -218,14 +294,6 @@ class Agent:
             json_report=result.json_display,
         )
         self.registry.save()
-        try:
-            shutil.move(str(path), str(destination))
-        except OSError as exc:
-            result.moved_to = None
-            result.note = f"could not be moved out of the inbox: {exc}"
-            self._write_json(result)
-        self.reporter.finished(result)
-        return result
 
     # --------------------------------------------------------------- output
     def report(self, r: InvoiceResult) -> dict:
@@ -274,4 +342,4 @@ def _num(value):
     return None if value is None else float(value)
 
 
-__all__ = ["Agent", "BatchResult", "InvoiceResult", "SKIPPED", "list_pdfs", "unique_path"]
+__all__ = ["Agent", "BatchResult", "FileFailure", "InvoiceResult", "SKIPPED", "list_pdfs", "move_file", "unique_path"]

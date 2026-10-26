@@ -128,3 +128,30 @@ def test_watch_waits_longer_after_a_failure(config, workspace):
     assert pauses == [20, 40]
     assert all(b.error for b in batches)
     assert (workspace.inbox / "x.pdf").exists()
+
+
+def test_a_second_demo_cannot_empty_a_running_demo(tmp_path):
+    from invoice_agent.cli import main
+
+    demo = tmp_path / "demo"
+    reset_demo_folder(demo)
+    (demo / "inbox").mkdir()
+    (demo / "inbox" / "in-progress.pdf").write_bytes(b"%PDF")
+    config_file = tmp_path / "config.json"
+    config_file.write_text(json.dumps({"demo_folder": str(demo)}))
+    with FolderLock(tmp_path / ".demo.lock"):  # a demo is running
+        assert main(["demo", "--config", str(config_file)]) == 1
+    assert (demo / "inbox" / "in-progress.pdf").exists()
+
+
+def test_watch_does_not_retry_a_failed_file_until_it_changes(config, workspace):
+    from invoice_agent.backends import BackendTimeout
+
+    path = copy_sample("09-menuiserie-specimen-scan.pdf", workspace.inbox, "slow.pdf")
+    backend = FakeBackend(BackendTimeout("too slow"))
+    agent = Agent(config, workspace, backend)
+    watch(agent, interval=1, on_batch=lambda b: None, sleep=lambda s: None, max_loops=3)
+    assert len(backend.requests) == 1          # tried once, not on every pass
+    path.write_bytes(path.read_bytes() + b"\n")  # the file changes (e.g. replaced by a new scan)
+    watch(agent, interval=1, on_batch=lambda b: None, sleep=lambda s: None, max_loops=1)
+    assert len(backend.requests) == 2

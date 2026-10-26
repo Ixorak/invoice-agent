@@ -22,6 +22,14 @@ def _size(path: Path) -> int | None:
         return None
 
 
+def _signature(path: Path) -> tuple[int, int] | None:
+    try:
+        st = path.stat()
+        return st.st_size, st.st_mtime_ns
+    except OSError:
+        return None
+
+
 def stable_files(paths: list[Path], wait_seconds: float = 1.0, sleep: Callable[[float], None] = time.sleep) -> list[Path]:
     """Keep the files whose size is the same before and after a short pause."""
     if not paths:
@@ -35,22 +43,34 @@ def watch(agent: Agent, interval: float, on_batch: Callable[[BatchResult], None]
           sleep: Callable[[float], None] = time.sleep, max_loops: int | None = None) -> None:
     """Loop until Ctrl+C (KeyboardInterrupt is left to the caller).
 
-    After a failed run (e.g. Claude Code not reachable) the next attempt waits
-    longer each time, up to 10 minutes, instead of calling it again every few seconds.
+    * A file skipped as already processed is reported once, not on every pass.
+    * A file that failed on its own (timeout, unexpected error) is not tried again
+      until it changes (or `watch` is restarted), so it cannot block the others.
+    * After a failed run (e.g. Claude Code not reachable) the next attempt waits
+      longer each time, up to 10 minutes, instead of calling it every few seconds.
     """
     reported_skips: set[tuple[str, int | None]] = set()
+    failed: dict[str, tuple[int, int] | None] = {}
     failures = 0
     loops = 0
     while max_loops is None or loops < max_loops:
         loops += 1
         candidates = stable_files(list_pdfs(agent.workspace.inbox), sleep=sleep)
-        # A file skipped earlier (already processed) is not reported again on every pass.
-        fresh = [p for p in candidates if (p.name, _size(p)) not in reported_skips]
+        fresh = [
+            p for p in candidates
+            if (p.name, _size(p)) not in reported_skips
+            and not (p.name in failed and failed[p.name] == _signature(p))
+        ]
         if fresh:
-            batch = agent.process_inbox(fresh)
+            try:
+                batch = agent.process_inbox(fresh)
+            except Exception as exc:  # never let one pass end the watcher
+                batch = BatchResult([], error=f"{type(exc).__name__}: {exc}")
             for r in batch.results:
                 if r.status == SKIPPED:
                     reported_skips.add((r.file, _size(agent.workspace.inbox / r.file)))
+            for f in batch.failures:
+                failed[f.file] = _signature(agent.workspace.inbox / f.file)
             on_batch(batch)
             failures = failures + 1 if batch.error else 0
         delay = interval if failures == 0 else min(interval * 2 ** failures, MAX_BACKOFF_SECONDS)

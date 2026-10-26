@@ -17,9 +17,10 @@ Every option used here exists in Claude Code 2.1.x (checked with `claude --help`
                                to the working folder
   --no-session-persistence     nothing is saved in the user's session history
 
-Each call runs in a new, empty temporary folder. For a scanned invoice, a copy
-of the PDF is placed there as invoice.pdf: it is the only file the AI can read
-(reads outside the folder are refused). The folder is deleted after the call.
+Each call runs in a new, empty temporary folder, created inside the agent's
+own output folder (output/.work/). For a scanned invoice, a copy of the PDF is
+placed there as invoice.pdf: it is the only file the AI can read (reads
+outside the folder are refused). The folder is deleted after the call.
 """
 
 from __future__ import annotations
@@ -34,7 +35,17 @@ import time
 from pathlib import Path
 
 from ..prompts import SCANNED_FILE_NAME
-from .base import Backend, BackendError, BackendReply, BackendUnavailable, ExtractionRequest, InvalidAnswer
+from .base import (
+    Backend,
+    BackendError,
+    BackendReply,
+    BackendTimeout,
+    BackendUnavailable,
+    ExtractionRequest,
+    InvalidAnswer,
+)
+
+WORK_PREFIX = "invoice-agent-"
 
 _NO_WINDOW = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW: no console window pops up
 
@@ -126,12 +137,17 @@ class ClaudeCodeBackend(Backend):
     name = "claude-code"
 
     def __init__(self, claude_path: str | None = None, model: str | None = "sonnet",
-                 effort: str | None = None, timeout_seconds: float = 240):
+                 effort: str | None = None, timeout_seconds: float = 240, work_root: Path | None = None):
         self.executable = find_claude(claude_path)
         self.model = model
         self.effort = effort
         self.timeout_seconds = timeout_seconds
+        self.work_root = Path(work_root) if work_root else None
         self._version: str | None = None
+        if self.work_root is not None:
+            self.work_root.mkdir(parents=True, exist_ok=True)
+            for leftover in self.work_root.glob(WORK_PREFIX + "*"):  # from a run that was killed
+                shutil.rmtree(leftover, ignore_errors=True)
 
     def version(self) -> str:
         if self._version is None:
@@ -178,7 +194,7 @@ class ClaudeCodeBackend(Backend):
         return cmd
 
     def complete(self, request: ExtractionRequest) -> BackendReply:
-        workdir = Path(tempfile.mkdtemp(prefix="invoice-agent-"))
+        workdir = Path(tempfile.mkdtemp(prefix=WORK_PREFIX, dir=self.work_root))
         try:
             if request.pdf_path is not None:
                 shutil.copyfile(request.pdf_path, workdir / SCANNED_FILE_NAME)
@@ -193,12 +209,12 @@ class ClaudeCodeBackend(Backend):
                     creationflags=_NO_WINDOW,
                 )
             except subprocess.TimeoutExpired as exc:
-                raise BackendError(
+                raise BackendTimeout(
                     f"Claude Code did not answer within {self.timeout_seconds:.0f} s "
                     "(timeout_seconds in config.json)."
                 ) from exc
-            except OSError as exc:
-                raise BackendUnavailable(f"Cannot start Claude Code ({self.executable}): {exc}") from exc
+            except OSError as exc:  # e.g. claude.exe is being updated: try again later
+                raise BackendError(f"Cannot start Claude Code ({self.executable}): {exc}") from exc
             seconds = time.perf_counter() - started
         finally:
             shutil.rmtree(workdir, ignore_errors=True)

@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from .textutil import strip_accents
 
 _ZERO_WIDTH = re.compile(r"[­​-‏⁠-⁤﻿]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 _S = r"[^.!?\n]"  # any character inside the same sentence
 
 # Patterns run on lowercase text without accents, with whitespace collapsed.
@@ -29,7 +30,11 @@ _RULES: list[tuple[str, str]] = [
     ("ignore-rules-en",
      rf"\b(ignore|disregard|override|bypass|skip)\b{_S}{{0,40}}?"
      r"\b(instructions?|prompts?|rules|guidelines|validations?|checks?|errors?|warnings?|controls?|verifications?)\b"),
-    ("set-status-en", rf"\b(set|change|mark|force|switch)\b{_S}{{0,30}}?\bstatus\b"),
+    # "set the status to OK": a verb, the word status, then a target value. "Notify us of any
+    # change in your VAT status" has no target value and is not flagged.
+    ("set-status-en",
+     rf"\b(set|change|mark|force|switch|update)\b{_S}{{0,30}}?\bstatus\b{_S}{{0,25}}?(\b(to|as)\W{{1,3}}|[:=]\W{{0,3}})"
+     r"(ok|approved|paid|valid|validated|accepted|cleared|verified|complete|completed)\b"),
     ("mark-as-en",
      rf"\b(mark|flag|treat|classify)\b{_S}{{0,25}}?\bas\W{{1,3}}"
      r"(approved|paid|valid|validated|verified|ok|legitimate|compliant)\b"),
@@ -49,8 +54,9 @@ _RULES: list[tuple[str, str]] = [
      rf"\b(ignore[rz]?|ignorez|outrepasse[rz]?|contourne[rz]?)\b{_S}{{0,40}}?"
      r"\b(instructions?|consignes?|regles?|erreurs?|controles?|verifications?|validations?|avertissements?)\b"),
     ("set-status-fr",
-     rf"\b(mets|mettez|mettre|definis(sez)?|definir|change[rz]?|modifie[rz]?|force[rz]?|marque[rz]?)\b"
-     rf"{_S}{{0,30}}?\bstatut\b"),
+     rf"\b(mets|mettez|mettre|definis(sez)?|definir|change[rz]?|modifie[rz]?|force[rz]?|marque[rz]?|passe[rz]?)\b"
+     rf"{_S}{{0,30}}?\bstatut\b{_S}{{0,25}}?(\b(a|en|sur|comme)\W{{1,3}}|[:=]\W{{0,3}})"
+     r"(ok|approuvee?|payee?|validee?|conforme|acceptee?|verifiee?)\b"),
     ("mark-as-fr",
      rf"\b(considere[rz]?|traite[rz]?|marque[rz]?|classe[rz]?)\b{_S}{{0,25}}?\bcomme\W{{1,3}}"
      r"(approuvee?s?|payee?s?|validee?s?|verifiee?s?|conformes?)\b"),
@@ -67,7 +73,9 @@ _RULES: list[tuple[str, str]] = [
     ("ignore-rules-de",
      rf"\b(ignorier(e|en|t)?|missachte(n|t)?|ubergeh(e|en|t)?|uberspring(e|en|t)?|umgeh(e|en|t)?)\b{_S}{{0,40}}?"
      r"\b(anweisungen|anweisung|regeln|fehler(meldungen)?|prufungen|prufung|validierung\w*|kontrollen|kontrolle|warnungen)\b"),
-    ("set-status-de", rf"\b(setze[n]?|setz|markiere[n]?)\b{_S}{{0,30}}?\bstatus\b"),
+    ("set-status-de",
+     rf"\b(setze[n]?|setz|markiere[n]?|andere[n]?|stelle[n]?)\b{_S}{{0,30}}?\bstatus\b{_S}{{0,25}}?"
+     rf"(\b(auf|zu|als)\W{{1,3}}|[:=]\W{{0,3}})(ok|genehmigt|bezahlt|freigegeben|gultig|erledigt)\b"),
     ("status-value-de", rf"\bstatus\b{_S}{{0,15}}?\b(auf|zu)\W{{1,3}}(ok|genehmigt|bezahlt|freigegeben|gultig)\b"),
     ("addressed-to-machine-de",
      r"\b(hinweis|nachricht|anweisung(en)?|notiz|achtung)\W{1,3}(an|fur)\W{1,3}(die\W+|alle\W+|das\W+|den\W+)?"
@@ -108,6 +116,7 @@ class KeywordHit:
 def normalize_for_scan(text: str) -> str:
     text = unicodedata.normalize("NFKC", text)
     text = _ZERO_WIDTH.sub("", text)
+    text = _CONTROL.sub(" ", text)  # control characters never reach an excerpt (or Excel)
     text = strip_accents(text).lower()
     text = text.replace("’", "'")
     return re.sub(r"\s+", " ", text).strip()

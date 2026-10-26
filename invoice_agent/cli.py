@@ -14,7 +14,7 @@ from rich.text import Text
 from . import __version__
 from .backends import BackendUnavailable, create_backend
 from .config import Config, ConfigError, Workspace, load_config
-from .console import ConsoleReporter, export, make_console, summary_table, totals_line
+from .console import ConsoleReporter, export, make_console, plain, summary_table, totals_line
 from .demo import SAMPLES_DIR, DemoFolderError, copy_samples, markdown_report, print_evaluation, reset_demo_folder
 from .evaluation import evaluate
 from .excel import ExcelLockedError
@@ -48,6 +48,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _backend(config: Config, workspace: Workspace):
+    """Temporary files of each AI call go to output/.work/, inside the agent's own folders."""
+    return create_backend(config, work_root=workspace.output / ".work")
+
+
 def _short(path: Path) -> str:
     """Path relative to the current folder when it is inside it."""
     try:
@@ -73,6 +78,9 @@ def _summary(console: Console, batch: BatchResult, workspace: Workspace) -> None
         for label, path in (("Excel", workspace.excel_path), ("JSON", workspace.json_dir),
                             ("OK", workspace.processed), ("Review", workspace.review)):
             console.print(Text.assemble((f"  {label:<7}", "dim"), (_short(path), "dim")))
+    for failure in batch.failures:
+        console.print(Text.assemble(("Not processed: ", "bold red"), plain(failure.file),
+                                    (f" ({failure.message})", "red")))
     if batch.error:
         console.print(Text(f"Stopped: {batch.error}", style="bold red"))
 
@@ -81,7 +89,7 @@ def cmd_run(console: Console, config: Config, base_dir: Path) -> int:
     workspace = Workspace.from_config(config, base_dir)
     workspace.create()
     with FolderLock(workspace.lock_path):
-        agent = Agent(config, workspace, create_backend(config), ConsoleReporter(console))
+        agent = Agent(config, workspace, _backend(config, workspace), ConsoleReporter(console))
         files = list_pdfs(workspace.inbox)
         _header(console, agent, f"{len(files)} PDF(s) in {_short(workspace.inbox)}")
         if not files:
@@ -89,7 +97,7 @@ def cmd_run(console: Console, config: Config, base_dir: Path) -> int:
             return 0
         batch = agent.process_inbox(files)
         _summary(console, batch, workspace)
-        return 1 if batch.error else 0
+        return 1 if batch.error or batch.failures else 0
 
 
 def cmd_watch(console: Console, config: Config, base_dir: Path, interval: float | None) -> int:
@@ -97,7 +105,7 @@ def cmd_watch(console: Console, config: Config, base_dir: Path, interval: float 
     workspace.create()
     interval = interval or config.watch_interval_seconds
     with FolderLock(workspace.lock_path):
-        agent = Agent(config, workspace, create_backend(config), ConsoleReporter(console))
+        agent = Agent(config, workspace, _backend(config, workspace), ConsoleReporter(console))
         _header(console, agent, f"watching {_short(workspace.inbox)} every {interval:g} s, Ctrl+C to stop")
 
         def on_batch(batch: BatchResult) -> None:
@@ -116,17 +124,18 @@ def cmd_demo(console: Console, config: Config, base_dir: Path, eval_report: Path
              command: str = "python -m invoice_agent demo") -> int:
     root = Path(config.demo_folder).expanduser()
     root = (root if root.is_absolute() else base_dir / root).resolve()
-    reset_demo_folder(root)
-    workspace = Workspace.under(root)
-    workspace.create()
-    with FolderLock(workspace.lock_path):
-        agent = Agent(config, workspace, create_backend(config), ConsoleReporter(console))
+    # The lock sits next to the demo folder, so a second demo cannot empty a running one.
+    with FolderLock(root.parent / f".{root.name}.lock"):
+        reset_demo_folder(root)
+        workspace = Workspace.under(root)
+        workspace.create()
+        agent = Agent(config, workspace, _backend(config, workspace), ConsoleReporter(console))
         files = copy_samples(workspace.inbox)
         _header(console, agent, f"demo: {len(files)} fictional sample invoices copied to {_short(workspace.inbox)}")
         started = datetime.now()
         batch = agent.process_inbox(files)
         _summary(console, batch, workspace)
-        if batch.error:
+        if batch.error or batch.failures:
             return 1
         report = evaluate(batch.results, SAMPLES_DIR / "expected.json")
         print_evaluation(console, report)

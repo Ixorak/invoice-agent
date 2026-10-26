@@ -19,6 +19,10 @@ from .checks import PreviousInvoice
 from .textutil import normalize_invoice_number, normalize_supplier_name, normalize_vat_id
 
 
+class RegistryError(Exception):
+    """output/registry.json exists but cannot be read."""
+
+
 @dataclass
 class Record:
     sha256: str
@@ -57,9 +61,15 @@ class Registry:
         path = Path(path)
         if not path.exists():
             return cls(path)
-        data = json.loads(path.read_text(encoding="utf-8"))
-        fields = Record.__dataclass_fields__
-        records = [Record(**{k: v for k, v in item.items() if k in fields}) for item in data.get("invoices", [])]
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            fields = Record.__dataclass_fields__
+            records = [Record(**{k: v for k, v in item.items() if k in fields}) for item in data["invoices"]]
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise RegistryError(
+                f"{path} cannot be read ({exc}). It lists the invoices already processed; "
+                "restore it from a backup or delete it to start from scratch."
+            ) from exc
         return cls(path, records)
 
     def find_by_hash(self, sha256: str) -> Record | None:

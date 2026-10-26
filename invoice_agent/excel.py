@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import tempfile
 from datetime import datetime
@@ -59,8 +60,8 @@ INVOICE_COLUMNS = [
     ("Line items", 10, None),
     ("Duration (s)", 11, SECONDS),
     ("Processed at", 19, DATETIME),
-    ("Moved to", 34, None),
-    ("JSON report", 34, None),
+    ("Moved to", 44, None),
+    ("JSON report", 48, None),
     ("SHA-256", 66, None),
 ]
 LINE_COLUMNS = [
@@ -81,7 +82,7 @@ REVIEW_COLUMNS = [
     ("Invoice number", 18, None),
     ("Status", 18, None),
     ("Code", 24, None),
-    ("Problem", 44, None),
+    ("Problem", 50, None),
     ("Explanation", 90, None),
     ("Processed at", 19, DATETIME),
 ]
@@ -142,11 +143,19 @@ def _write_header(ws, columns) -> None:
 
 def _append(ws, columns, values: list) -> int:
     row = ws.max_row + 1
-    for index, ((_, _, fmt), value) in enumerate(zip(columns, values), start=1):
+    lines_needed = 1
+    for index, ((_, width, fmt), value) in enumerate(zip(columns, values), start=1):
         cell = ws.cell(row=row, column=index)
         _set(cell, value, fmt)
-        cell.alignment = Alignment(vertical="top", wrap_text=isinstance(value, str) and len(value) > 40)
+        wrap = isinstance(value, str) and (len(value) > width or "\n" in value)
+        cell.alignment = Alignment(vertical="top", wrap_text=wrap)
         cell.border = Border(bottom=_THIN)
+        if wrap:
+            per_line = max(int(width * 1.1) - 2, 1)
+            lines = sum(max(1, math.ceil(len(part) / per_line)) for part in value.split("\n"))
+            lines_needed = max(lines_needed, min(lines, 12))
+    if lines_needed > 1:
+        ws.row_dimensions[row].height = 15 * lines_needed  # Excel does not resize rows written by openpyxl
     return row
 
 
@@ -243,7 +252,6 @@ def append_results(path: Path, results: list["InvoiceResult"]) -> None:
                     _naive(r.processed_at),
                 ])
                 _style_status(review.cell(row=row, column=4))
-                review.cell(row=row, column=7).alignment = Alignment(vertical="top", wrap_text=True)
 
     for ws, columns in ((invoices, INVOICE_COLUMNS), (lines, LINE_COLUMNS), (review, REVIEW_COLUMNS)):
         _refresh_filter(ws, columns)

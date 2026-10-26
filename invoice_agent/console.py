@@ -62,11 +62,16 @@ class ConsoleReporter:
             self.console.print(Text.assemble(("      note: ", "yellow"), plain(result.note)))
 
 
-def summary_table(results: list[InvoiceResult], title: str = "invoice-agent: summary") -> Table:
+def summary_table(results: list[InvoiceResult], title: str = "invoice-agent: summary", width: int = 160) -> Table:
+    """One row per invoice. On a narrow terminal the less important columns are left out."""
+    show_number = width >= 140
+    show_supplier = width >= 110
     table = Table(title=title, title_style="bold", header_style="bold", box=box.ROUNDED, show_lines=True)
     table.add_column("File", no_wrap=True)
-    table.add_column("Supplier", max_width=26)
-    table.add_column("Invoice no.", no_wrap=True)
+    if show_supplier:
+        table.add_column("Supplier", min_width=12, max_width=26)
+    if show_number:
+        table.add_column("Invoice no.", no_wrap=True)
     table.add_column("Total", justify="right", no_wrap=True)
     table.add_column("Status", no_wrap=True)
     table.add_column("Codes", no_wrap=True)
@@ -77,16 +82,18 @@ def summary_table(results: list[InvoiceResult], title: str = "invoice-agent: sum
         if ex and ex.totals.total_printed is not None:
             total = f"{ex.invoice.currency or ''} {money(ex.totals.total_printed)}".strip()
         if r.status == SKIPPED:
-            codes = Text("already processed (same SHA-256)", style="dim")
+            codes = Text("same file already processed", style="dim")
         elif r.status == EXTRACTION_FAILED:
-            codes = plain((r.error or "").splitlines()[0][:50])
+            codes = plain((r.error or "").splitlines()[0][:40])
         else:
             codes = plain("\n".join(r.codes) if r.codes else "-")
-        table.add_row(
-            plain(r.file), plain(ex.supplier.name if ex else ""), plain(ex.invoice.number if ex else ""),
-            total, status_text(r.status), codes,
-            f"{r.duration_seconds:.1f} s" if r.status != SKIPPED else "",
-        )
+        row = [plain(r.file)]
+        if show_supplier:
+            row.append(plain(ex.supplier.name if ex else ""))
+        if show_number:
+            row.append(plain(ex.invoice.number if ex else ""))
+        row += [total, status_text(r.status), codes, f"{r.duration_seconds:.1f} s" if r.status != SKIPPED else ""]
+        table.add_row(*row)
     return table
 
 

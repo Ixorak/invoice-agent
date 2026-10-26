@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import signal
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from .evaluation import evaluate
 from .excel import ExcelLockedError
 from .locking import AlreadyRunning, FolderLock
 from .pipeline import Agent, BatchResult, list_pdfs
+from .registry import RegistryError
 from .watcher import watch
 
 
@@ -63,12 +65,10 @@ def _header(console: Console, agent: Agent, what: str) -> None:
 
 
 def _summary(console: Console, batch: BatchResult, workspace: Workspace) -> None:
-    if not batch.results:
-        return
-    console.print()
-    console.print(summary_table(batch.results))
-    console.print(totals_line(batch.results))
     if batch.processed:
+        console.print()
+        console.print(summary_table(batch.results, width=console.size.width))
+        console.print(totals_line(batch.results))
         for label, path in (("Excel", workspace.excel_path), ("JSON", workspace.json_dir),
                             ("OK", workspace.processed), ("Review", workspace.review)):
             console.print(Text.assemble((f"  {label:<7}", "dim"), (_short(path), "dim")))
@@ -138,12 +138,21 @@ def cmd_demo(console: Console, config: Config, base_dir: Path, eval_report: Path
         return 0 if report.status_correct == len(report.invoices) else 1
 
 
+def _stop_on_ctrl_break() -> None:
+    """On Windows, Ctrl+Break stops the agent as cleanly as Ctrl+C."""
+    if hasattr(signal, "SIGBREAK"):
+        def handler(signum, frame):
+            raise KeyboardInterrupt
+        signal.signal(signal.SIGBREAK, handler)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if not args.command:
         parser.print_help()
         return 2
+    _stop_on_ctrl_break()
     console = make_console(record=bool(args.export_console), width=args.width)
     code = 1
     try:
@@ -154,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
             code = cmd_watch(console, config, base_dir, args.interval)
         else:
             code = cmd_demo(console, config, base_dir, args.eval_report)
-    except (ConfigError, BackendUnavailable, DemoFolderError) as exc:
+    except (ConfigError, BackendUnavailable, DemoFolderError, RegistryError) as exc:
         console.print(Text(f"Error: {exc}", style="bold red"))
         code = 2
     except (AlreadyRunning, ExcelLockedError) as exc:

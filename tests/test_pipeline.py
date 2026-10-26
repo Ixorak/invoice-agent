@@ -131,3 +131,29 @@ def test_injection_in_the_pdf_is_flagged_even_if_the_ai_misses_it(config, worksp
     [result] = batch.results
     assert "SUSPICIOUS_INSTRUCTION" in result.codes
     assert result.status == "NEEDS_REVIEW"
+
+
+def test_excel_open_in_excel_stops_before_calling_the_ai(config, workspace, monkeypatch):
+    import invoice_agent.pipeline as pipeline
+    from invoice_agent.excel import ExcelLockedError
+
+    def locked(path):
+        raise ExcelLockedError("invoices.xlsx is open in another program. Close it and run again.")
+
+    monkeypatch.setattr(pipeline, "ensure_writable", locked)
+    copy_sample("03-nordwerk-demo.pdf", workspace.inbox, "j.pdf")
+    backend = FakeBackend(payload())
+    batch = Agent(config, workspace, backend).process_inbox()
+    assert batch.error and "open in another program" in batch.error
+    assert backend.requests == []
+    assert (workspace.inbox / "j.pdf").exists()
+
+
+def test_unreadable_registry_is_reported_clearly(config, workspace):
+    import pytest
+
+    from invoice_agent.registry import RegistryError
+
+    workspace.registry_path.write_text("{ not json", encoding="utf-8")
+    with pytest.raises(RegistryError, match="already processed"):
+        Agent(config, workspace, FakeBackend(payload()))

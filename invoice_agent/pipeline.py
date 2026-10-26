@@ -22,7 +22,7 @@ from . import __version__
 from .backends import Backend, BackendError
 from .checks import CODE_TITLES, EXTRACTION_FAILED, OK, CheckResult, Issue, run_checks
 from .config import Config, Workspace
-from .excel import append_results, ensure_writable
+from .excel import ExcelLockedError, append_results, ensure_writable
 from .extractor import Attempt, Extractor
 from .injection import KeywordHit, scan_text
 from .models import InvoiceExtraction
@@ -146,7 +146,7 @@ class Agent:
         for index, path in enumerate(files, start=1):
             try:
                 result = self.process_file(path, index, len(files))
-            except BackendError as exc:
+            except (BackendError, ExcelLockedError) as exc:
                 return BatchResult(results, f"{path.name}: {exc} The file was left in the inbox.")
             results.append(result)
         return BatchResult(results)
@@ -160,7 +160,8 @@ class Agent:
         if known is not None:
             result = InvoiceResult(
                 file=path.name, sha256=sha, status=SKIPPED, processed_at=processed_at,
-                note=f"already processed on {known.processed_at} as '{known.file}' ({known.status}); left in the inbox",
+                note=(f"same file already processed on {known.processed_at.replace('T', ' ')[:16]} "
+                      f"as '{known.file}' ({known.status}); ignored and left in the inbox"),
                 base_dir=self.base_dir,
             )
             self.reporter.finished(result)

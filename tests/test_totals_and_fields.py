@@ -92,3 +92,15 @@ def test_absurd_amounts_never_crash_the_report():
     from invoice_agent.checks import money
 
     assert money(Decimal("1E+40")) == "1E+40"
+
+
+def test_vat_inclusive_prices_end_up_in_review():
+    # Prices include VAT ("of which VAT 8.1 %: 8.10"), no net subtotal printed.
+    ex = extraction({
+        "line_items": [{"description": "Item", "quantity": "1", "unit_price": "108.10", "vat_rate": "8.1",
+                        "amount": "108.10"}],
+        "totals.subtotal": None,
+        "totals.vat_breakdown": [{"rate": "8.1", "base": None, "vat": "8.10"}],
+        "totals.vat_total": "8.10", "totals.total_printed": "108.10",
+    })
+    assert codes(ex) == ["VAT_MISMATCH", "TOTAL_MISMATCH"]

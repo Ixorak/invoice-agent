@@ -1,0 +1,280 @@
+{
+  "note": "Ground truth for the fictional test invoices. All companies, people, numbers and IBANs are invented.",
+  "invoices": [
+    {
+      "file": "01-papeterie-lumenta.pdf",
+      "language": "fr",
+      "scanned": false,
+      "supplier_name": "Papeterie Lumenta Sàrl",
+      "supplier_vat_id": "CHE-482.915.306 TVA",
+      "invoice_number": "F-2026-0418",
+      "invoice_date": "2026-10-02",
+      "due_date": "2026-11-01",
+      "currency": "CHF",
+      "line_count": 4,
+      "subtotal": 486.0,
+      "vat_breakdown": [
+        {
+          "rate": 8.1,
+          "base": 486.0,
+          "vat": 39.37
+        }
+      ],
+      "vat_total": 39.37,
+      "total_printed": 525.37,
+      "total_computed": 525.37,
+      "iban": "CH0252445167279807972",
+      "expected_status": "OK",
+      "expected_flags": []
+    },
+    {
+      "file": "02-primeurs-du-lac.pdf",
+      "language": "fr",
+      "scanned": false,
+      "supplier_name": "Primeurs du Lac Fictif SA",
+      "supplier_vat_id": "CHE-317.604.882 TVA",
+      "invoice_number": "PL-77120",
+      "invoice_date": "2026-10-04",
+      "due_date": "2026-11-03",
+      "currency": "CHF",
+      "line_count": 5,
+      "subtotal": 500.0,
+      "vat_breakdown": [
+        {
+          "rate": 8.1,
+          "base": 60.0,
+          "vat": 4.86
+        },
+        {
+          "rate": 2.6,
+          "base": 440.0,
+          "vat": 11.44
+        }
+      ],
+      "vat_total": 16.3,
+      "total_printed": 516.3,
+      "total_computed": 516.3,
+      "iban": "CH2761750054335349840",
+      "expected_status": "OK",
+      "expected_flags": []
+    },
+    {
+      "file": "03-nordwerk-demo.pdf",
+      "language": "de",
+      "scanned": false,
+      "supplier_name": "Nordwerk Demo GmbH",
+      "supplier_vat_id": "CHE-205.771.948 MWST",
+      "invoice_number": "RE-2026-1093",
+      "invoice_date": "2026-10-06",
+      "due_date": "2026-11-05",
+      "currency": "CHF",
+      "line_count": 3,
+      "subtotal": 289.0,
+      "vat_breakdown": [
+        {
+          "rate": 8.1,
+          "base": 289.0,
+          "vat": 23.41
+        }
+      ],
+      "vat_total": 23.41,
+      "total_printed": 312.41,
+      "total_computed": 312.41,
+      "iban": "CH1019494591937865764",
+      "expected_status": "OK",
+      "expected_flags": []
+    },
+    {
+      "file": "04-tipografia-esempio.pdf",
+      "language": "it",
+      "scanned": false,
+      "supplier_name": "Tipografia Esempio SA",
+      "supplier_vat_id": "CHE-640.118.273 IVA",
+      "invoice_number": "FT-560",
+      "invoice_date": "2026-10-07",
+      "due_date": "2026-11-06",
+      "currency": "CHF",
+      "line_count": 3,
+      "subtotal": 565.0,
+      "vat_breakdown": [
+        {
+          "rate": 8.1,
+          "base": 565.0,
+          "vat": 45.77
+        }
+      ],
+      "vat_total": 45.77,
+      "total_printed": 610.77,
+      "total_computed": 610.77,
+      "iban": "CH2822337641520749048",
+      "expected_status": "OK",
+      "expected_flags": []
+    },
+    {
+      "file": "05-examplify-cloud.pdf",
+      "language": "en",
+      "scanned": false,
+      "supplier_name": "Examplify Cloud Ltd",
+      "supplier_vat_id": "IE 9999999XA (fictional)",
+      "invoice_number": "EXC-2026-10-3381",
+      "invoice_date": "2026-10-08",
+      "due_date": "2026-11-07",
+      "currency": "EUR",
+      "line_count": 3,
+      "subtotal": 366.0,
+      "vat_breakdown": [
+        {
+          "rate": 0,
+          "base": 366.0,
+          "vat": 0.0
+        }
+      ],
+      "vat_total": 0.0,
+      "total_printed": 366.0,
+      "total_computed": 366.0,
+      "iban": "IE72EXMP99000007784483",
+      "expected_status": "OK",
+      "expected_flags": []
+    },
+    {
+      "file": "06-garage-exemplaire.pdf",
+      "language": "fr",
+      "scanned": false,
+      "supplier_name": "Garage Exemplaire SA",
+      "supplier_vat_id": "CHE-553.209.417 TVA",
+      "invoice_number": "GE-9921",
+      "invoice_date": "2026-10-10",
+      "due_date": "2026-11-09",
+      "currency": "CHF",
+      "line_count": 4,
+      "subtotal": 1094.0,
+      "vat_breakdown": [
+        {
+          "rate": 8.1,
+          "base": 1094.0,
+          "vat": 88.61
+        }
+      ],
+      "vat_total": 88.61,
+      "total_printed": 1191.61,
+      "total_computed": 1182.61,
+      "iban": "CH9376510039576827340",
+      "expected_status": "NEEDS_REVIEW",
+      "expected_flags": [
+        "TOTAL_MISMATCH"
+      ]
+    },
+    {
+      "file": "07-nettoyage-modele.pdf",
+      "language": "fr",
+      "scanned": false,
+      "supplier_name": "Nettoyage Modèle Sàrl",
+      "supplier_vat_id": "CHE-128.946.530 TVA",
+      "invoice_number": "NM-2026-212",
+      "invoice_date": "2026-10-13",
+      "due_date": "2026-11-12",
+      "currency": "CHF",
+      "line_count": 3,
+      "subtotal": 945.0,
+      "vat_breakdown": [
+        {
+          "rate": 7.7,
+          "base": 945.0,
+          "vat": 72.77
+        }
+      ],
+      "vat_total": 72.77,
+      "total_printed": 1017.77,
+      "total_computed": 1017.77,
+      "iban": "CH1221265461423994714",
+      "expected_status": "NEEDS_REVIEW",
+      "expected_flags": [
+        "VAT_RATE_INVALID"
+      ]
+    },
+    {
+      "file": "08-papeterie-lumenta-duplicata.pdf",
+      "language": "fr",
+      "scanned": false,
+      "supplier_name": "Papeterie Lumenta Sàrl",
+      "supplier_vat_id": "CHE-482.915.306 TVA",
+      "invoice_number": "F-2026-0418",
+      "invoice_date": "2026-10-02",
+      "due_date": "2026-11-01",
+      "currency": "CHF",
+      "line_count": 4,
+      "subtotal": 486.0,
+      "vat_breakdown": [
+        {
+          "rate": 8.1,
+          "base": 486.0,
+          "vat": 39.37
+        }
+      ],
+      "vat_total": 39.37,
+      "total_printed": 525.37,
+      "total_computed": 525.37,
+      "iban": "CH0252445167279807972",
+      "expected_status": "NEEDS_REVIEW",
+      "expected_flags": [
+        "DUPLICATE"
+      ]
+    },
+    {
+      "file": "09-menuiserie-specimen-scan.pdf",
+      "language": "fr",
+      "scanned": true,
+      "supplier_name": "Menuiserie Specimen SA",
+      "supplier_vat_id": "CHE-391.672.805 TVA",
+      "invoice_number": "MS-0347",
+      "invoice_date": "2026-10-15",
+      "due_date": "2026-11-14",
+      "currency": "CHF",
+      "line_count": 3,
+      "subtotal": 1300.0,
+      "vat_breakdown": [
+        {
+          "rate": 8.1,
+          "base": 1300.0,
+          "vat": 105.3
+        }
+      ],
+      "vat_total": 105.3,
+      "total_printed": 1405.3,
+      "total_computed": 1405.3,
+      "iban": "CH4119156099817887524",
+      "expected_status": "OK",
+      "expected_flags": []
+    },
+    {
+      "file": "10-conseil-fantome.pdf",
+      "language": "fr",
+      "scanned": false,
+      "supplier_name": "Conseil Fantôme Sàrl",
+      "supplier_vat_id": "CHE-702.483.159 TVA",
+      "invoice_number": "CF-2026-031",
+      "invoice_date": "2026-10-17",
+      "due_date": null,
+      "currency": "CHF",
+      "line_count": 2,
+      "subtotal": 1650.0,
+      "vat_breakdown": [
+        {
+          "rate": 8.1,
+          "base": 1650.0,
+          "vat": 133.65
+        }
+      ],
+      "vat_total": 133.65,
+      "total_printed": 1783.65,
+      "total_computed": 1783.65,
+      "iban": "CH7282226066247805471",
+      "expected_status": "NEEDS_REVIEW",
+      "expected_flags": [
+        "MISSING_DUE_DATE",
+        "IBAN_INVALID",
+        "SUSPICIOUS_INSTRUCTION"
+      ]
+    }
+  ]
+}

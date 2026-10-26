@@ -184,15 +184,16 @@ def run_checks(
     missing_amounts = [i for i, ln in enumerate(ex.line_items, 1) if ln.amount is None]
     if ex.line_items and not missing_amounts:
         lines_sum = sum((ln.amount for ln in ex.line_items), Decimal(0))
-    if totals.subtotal is not None:
-        if not ex.line_items:
-            add("LINES_MISMATCH", "No line items were found, so the subtotal cannot be checked against them.")
-        elif missing_amounts:
-            add("LINES_MISMATCH", f"Line(s) {', '.join(map(str, missing_amounts))} have no amount, so the lines cannot be added up.")
-        elif not _close(lines_sum, totals.subtotal, tol):
-            add("LINES_MISMATCH",
-                f"The {len(ex.line_items)} line items add up to {money(lines_sum)}, but the printed subtotal is "
-                f"{money(totals.subtotal)} (difference {money(lines_sum - totals.subtotal)}).")
+    # (No lines, or a line without amount, is flagged even without a printed subtotal:
+    # otherwise nothing would verify the total.)
+    if not ex.line_items:
+        add("LINES_MISMATCH", "No line items were found, so the amounts cannot be checked against them.")
+    elif missing_amounts:
+        add("LINES_MISMATCH", f"Line(s) {', '.join(map(str, missing_amounts))} have no amount, so the lines cannot be added up.")
+    elif totals.subtotal is not None and not _close(lines_sum, totals.subtotal, tol):
+        add("LINES_MISMATCH",
+            f"The {len(ex.line_items)} line items add up to {money(lines_sum)}, but the printed subtotal is "
+            f"{money(totals.subtotal)} (difference {money(lines_sum - totals.subtotal)}).")
 
     # VAT_MISMATCH: VAT of each rate = base x rate; the parts must add up to the VAT total.
     table = _vat_table(ex)

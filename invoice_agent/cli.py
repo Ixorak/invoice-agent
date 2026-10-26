@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import signal
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -111,7 +112,8 @@ def cmd_watch(console: Console, config: Config, base_dir: Path, interval: float 
         return 0
 
 
-def cmd_demo(console: Console, config: Config, base_dir: Path, eval_report: Path | None) -> int:
+def cmd_demo(console: Console, config: Config, base_dir: Path, eval_report: Path | None,
+             command: str = "python -m invoice_agent demo") -> int:
     root = Path(config.demo_folder).expanduser()
     root = (root if root.is_absolute() else base_dir / root).resolve()
     reset_demo_folder(root)
@@ -129,7 +131,8 @@ def cmd_demo(console: Console, config: Config, base_dir: Path, eval_report: Path
         report = evaluate(batch.results, SAMPLES_DIR / "expected.json")
         print_evaluation(console, report)
         models = sorted({a.meta.get("model") for r in batch.results for a in r.attempts if a.meta.get("model")})
-        markdown = markdown_report(report, backend_info=agent.backend_info, models=models, started=started)
+        markdown = markdown_report(report, backend_info=agent.backend_info, models=models, started=started,
+                                   command=command)
         targets = [workspace.output / "eval.md"] + ([eval_report] if eval_report else [])
         for target in targets:
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -162,7 +165,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "watch":
             code = cmd_watch(console, config, base_dir, args.interval)
         else:
-            code = cmd_demo(console, config, base_dir, args.eval_report)
+            argv_used = sys.argv[1:] if argv is None else argv
+            code = cmd_demo(console, config, base_dir, args.eval_report,
+                            command="python -m invoice_agent " + " ".join(argv_used))
     except (ConfigError, BackendUnavailable, DemoFolderError, RegistryError) as exc:
         console.print(Text(f"Error: {exc}", style="bold red"))
         code = 2

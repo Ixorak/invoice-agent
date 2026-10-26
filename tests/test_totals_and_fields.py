@@ -60,3 +60,13 @@ def test_codes_are_reported_in_a_stable_order():
     found = codes(ex)
     assert found == sorted(found, key=CODES.index)
     assert found == ["TOTAL_MISMATCH", "MISSING_DUE_DATE", "IBAN_INVALID"]
+
+
+def test_line_without_amount_is_flagged_even_without_subtotal():
+    ex = extraction({"line_items.1.amount": None, "totals.subtotal": None})
+    assert codes(ex) == ["LINES_MISMATCH"]
+
+
+def test_without_printed_subtotal_the_lines_are_used_for_the_total():
+    assert codes(extraction({"totals.subtotal": None})) == []
+    assert codes(extraction({"totals.subtotal": None, "totals.total_printed": "300.00"})) == ["TOTAL_MISMATCH"]

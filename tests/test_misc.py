@@ -111,3 +111,20 @@ def test_evaluation_compares_status_codes_and_fields(config, workspace, tmp_path
     report = evaluate(batch.results, path)
     assert report.status_correct == 1
     assert all(ok == total for _, ok, total in report.field_accuracy())
+
+
+def test_watch_waits_longer_after_a_failure(config, workspace):
+    from invoice_agent.backends import BackendError
+
+    copy_sample("03-nordwerk-demo.pdf", workspace.inbox, "x.pdf")
+    agent = Agent(config, workspace, FakeBackend(BackendError("Claude Code is not logged in")))
+    waits, batches = [], []
+
+    def fake_sleep(seconds):
+        waits.append(seconds)
+
+    watch(agent, interval=10, on_batch=batches.append, sleep=fake_sleep, max_loops=3)
+    pauses = [w for w in waits if w != 1.0]  # 1.0 = the "is the file still growing?" pause
+    assert pauses == [20, 40]
+    assert all(b.error for b in batches)
+    assert (workspace.inbox / "x.pdf").exists()
